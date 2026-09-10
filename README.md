@@ -48,6 +48,31 @@ Le fichier créé sera nommé :
 
 `Dinosaurs_for_Hire_FR.bin`
 
+## Compilation
+
+Le patcher ne dépend que de Java 17 (ou plus récent) et de Gradle. Depuis la
+racine du dépôt :
+
+```bash
+gradle clean check jar
+```
+
+Le fichier autonome est alors disponible sous
+`build/libs/DinosaursForHirePatcher.jar`. Il se lance sur Windows, macOS et
+Linux avec :
+
+```bash
+java -jar build/libs/DinosaursForHirePatcher.jar
+```
+
+La tâche `check` reconstruit la ROM française depuis la ROM USA, vérifie son
+identité octet par octet avec la référence finale, contrôle son SHA-1, teste
+chaque cheat ainsi que le checksum Mega Drive. La ROM française de référence
+n'est pas embarquée dans le JAR : celui-ci contient uniquement les blocs de
+différences nécessaires à la traduction, stockés dans le dépôt sous forme de
+ressource texte Base64. Le bandeau est intégré au moment du build depuis le
+fichier `Image.png` déjà présent à la racine.
+
 ---
 
 ## Cheats disponibles
