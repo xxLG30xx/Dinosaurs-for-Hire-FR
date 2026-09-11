@@ -5,7 +5,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 
 public final class RomValidator {
     public static final int ORIGINAL_SIZE = 1_048_576;
@@ -27,7 +26,10 @@ public final class RomValidator {
 
     public static String digest(String algorithm, byte[] bytes) {
         try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance(algorithm).digest(bytes));
+            byte[] digest = MessageDigest.getInstance(algorithm).digest(bytes);
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte value : digest) hex.append(String.format("%02x", value & 0xff));
+            return hex.toString();
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("Algorithme indisponible : " + algorithm, e);
         }

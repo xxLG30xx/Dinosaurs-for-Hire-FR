@@ -19,7 +19,7 @@ public final class TranslationPatch {
             if (raw == null) throw new PatchException("Ressource de traduction absente du patcher.");
             try (InputStream decoded = Base64.getMimeDecoder().wrap(raw);
                  DataInputStream in = new DataInputStream(new BufferedInputStream(decoded))) {
-                byte[] magic = in.readNBytes(4);
+                byte[] magic = readBytes(in, 4);
                 if (!Arrays.equals(magic, MAGIC)) throw new PatchException("Ressource de traduction invalide.");
                 int targetSize = in.readInt();
                 if (targetSize < original.length) throw new PatchException("Taille cible de traduction invalide.");
@@ -31,7 +31,7 @@ public final class TranslationPatch {
                     int length = in.readInt();
                     if (offset < 0 || length < 1 || offset > result.length - length)
                         throw new PatchException("Bloc de traduction hors limites (bloc " + (n + 1) + ").");
-                    byte[] expected = in.readNBytes(length);
+                    byte[] expected = readBytes(in, length);
                     if (expected.length != length) throw new EOFException();
                     if (!Arrays.equals(expected, Arrays.copyOfRange(result, offset, offset + length)))
                         throw new PatchException("Octets source inattendus à l'offset 0x" + Integer.toHexString(offset).toUpperCase() + ". Patch annulé.");
@@ -45,5 +45,16 @@ public final class TranslationPatch {
         } catch (IOException e) {
             throw new PatchException("Impossible de lire la ressource de traduction.", e);
         }
+    }
+
+    private static byte[] readBytes(DataInputStream in, int length) throws IOException {
+        byte[] bytes = new byte[length];
+        int position = 0;
+        while (position < length) {
+            int count = in.read(bytes, position, length - position);
+            if (count < 0) break;
+            position += count;
+        }
+        return position == length ? bytes : Arrays.copyOf(bytes, position);
     }
 }
