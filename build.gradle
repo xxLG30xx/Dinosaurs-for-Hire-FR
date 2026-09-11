@@ -4,12 +4,13 @@ group = 'fr.teamdeltaisland'
 version = '1.0.0'
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+    options.release = 8
 }
 
 jar {
@@ -19,13 +20,14 @@ jar {
 
 processResources {
     from('Image.png') { rename { 'banner.png' } }
+    from('Image.png')
 }
 
 tasks.register('verifyPatch', JavaExec) {
-    dependsOn classes, compileTestJava
+    dependsOn jar, compileTestJava
     classpath = sourceSets.main.runtimeClasspath + sourceSets.test.runtimeClasspath
     mainClass = 'fr.teamdeltaisland.patcher.PatchVerificationTest'
-    args file("Tom Mason's Dinosaurs for Hire (USA).md"), file('Dinosaurs For Hire FR Finale.bin')
+    args file("Tom Mason's Dinosaurs for Hire (USA).md"), file('Dinosaurs For Hire FR Finale.bin'), jar.archiveFile.get().asFile
 }
 
 check.dependsOn verifyPatch

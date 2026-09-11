@@ -1,123 +1,294 @@
 package fr.teamdeltaisland.patcher;
 
 import javax.imageio.ImageIO;
-import javax.swing.*;
-import javax.swing.border.*;
-import java.awt.*;
+import javax.swing.JCheckBox;
+import javax.swing.JFileChooser;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+import java.awt.Color;
+import java.awt.Cursor;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.Point;
+import java.awt.Rectangle;
+import java.awt.RenderingHints;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.Map;
 
+/** Swing shell whose complete visual design is the official Image.png artwork. */
 public final class PatcherApplication extends JFrame {
-    private static final Color BG = new Color(3, 12, 13);
-    private static final Color PANEL = new Color(7, 20, 23);
-    private static final Color RED = new Color(239, 43, 48);
-    private static final Color GREEN = new Color(25, 163, 61);
-    private final JLabel fileName = value("Aucun fichier");
-    private final JLabel fileSize = value("—");
-    private final JLabel status = value("Sélectionnez la ROM USA officielle");
-    private final Map<Cheat, JCheckBox> cheatBoxes = new EnumMap<>(Cheat.class);
+    private static final int ARTWORK_WIDTH = 1584;
+    private static final int ARTWORK_HEIGHT = 993;
+    private static final Color TEXT = new Color(184, 193, 210);
+    private static final Color DYNAMIC_BACKGROUND = new Color(4, 16, 21);
+
+    private final Map<Cheat, JCheckBox> cheatBoxes = new EnumMap<Cheat, JCheckBox>(Cheat.class);
+    private final JLabel fileName = overlayLabel();
+    private final JLabel fileSize = overlayLabel();
+    private final JLabel status = overlayLabel();
+    private final OverlayPane overlay;
     private Path selectedRom;
+    private Rectangle restoredBounds;
+    private Point dragOrigin;
 
     public PatcherApplication() {
         super("Dinosaurs for Hire ROM Patcher LG30");
         setDefaultCloseOperation(EXIT_ON_CLOSE);
-        setMinimumSize(new Dimension(1050, 720));
-        setSize(1400, 880);
+        setUndecorated(true);
+        setResizable(true);
+        overlay = new OverlayPane(loadArtwork());
+        setContentPane(overlay);
+        installOverlays();
+        setSize(ARTWORK_WIDTH, ARTWORK_HEIGHT);
         setLocationRelativeTo(null);
-        setContentPane(buildUi());
     }
 
-    private JComponent buildUi() {
-        JPanel root = new JPanel(new BorderLayout(8, 8));
-        root.setBackground(BG); root.setBorder(new EmptyBorder(10, 10, 8, 10));
-        root.add(banner(), BorderLayout.NORTH);
-        JPanel content = new JPanel(new BorderLayout(8, 8)); content.setOpaque(false);
-        content.add(selectionPanel(), BorderLayout.NORTH);
-        JPanel columns = new JPanel(new GridBagLayout()); columns.setOpaque(false);
-        GridBagConstraints c = new GridBagConstraints(); c.gridy=0; c.fill=GridBagConstraints.BOTH; c.weighty=1;
-        c.gridx=0; c.weightx=.29; columns.add(translationPanel(), c);
-        c.gridx=1; c.weightx=.43; columns.add(cheatsPanel(), c);
-        c.gridx=2; c.weightx=.28; columns.add(createPanel(), c);
-        content.add(columns, BorderLayout.CENTER); root.add(content, BorderLayout.CENTER);
-        JLabel footer = new JLabel("⚙  v1.0.0                         Pour usage personnel uniquement. Respectez les droits d’auteur de SEGA.                         TEAM DELTA ISLAND", SwingConstants.CENTER);
-        footer.setForeground(Color.WHITE); footer.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14)); root.add(footer, BorderLayout.SOUTH);
-        return root;
-    }
+    private void installOverlays() {
+        addHotspot(new Rectangle(8, 3, 20, 24), new Runnable() {
+            public void run() { dispose(); }
+        }, "Fermer");
+        addHotspot(new Rectangle(31, 3, 23, 24), new Runnable() {
+            public void run() { setState(ICONIFIED); }
+        }, "Réduire");
+        addHotspot(new Rectangle(56, 3, 24, 24), new Runnable() {
+            public void run() { toggleMaximized(); }
+        }, "Agrandir ou restaurer");
 
-    private JComponent banner() {
-        try {
-            BufferedImage full = ImageIO.read(PatcherApplication.class.getResource("/banner.png"));
-            BufferedImage crop = full.getSubimage(10, 32, full.getWidth()-20, Math.min(288, full.getHeight()-32));
-            return new ScaledImage(crop);
-        } catch (Exception e) {
-            JLabel fallback = new JLabel("DINOSAURS FOR HIRE — ROM PATCHER", SwingConstants.CENTER);
-            fallback.setForeground(RED); fallback.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 32)); fallback.setPreferredSize(new Dimension(800, 190)); return fallback;
+        addHotspot(new Rectangle(45, 389, 447, 79), new Runnable() {
+            public void run() { chooseRom(); }
+        }, "Choisir la ROM Dinosaurs for Hire (USA)");
+        addHotspot(new Rectangle(1134, 573, 408, 79), new Runnable() {
+            public void run() { createRom(); }
+        }, "Créer ma ROM");
+
+        addOverlay(fileName, new Rectangle(742, 383, 455, 31));
+        addOverlay(fileSize, new Rectangle(742, 420, 455, 31));
+        addOverlay(status, new Rectangle(742, 456, 455, 31));
+
+        fileName.setVisible(false);
+        fileSize.setVisible(false);
+        status.setVisible(false);
+
+        JCheckBox translation = transparentCheckBox("Traduction française LG30", true);
+        addOverlay(translation, new Rectangle(43, 563, 370, 35));
+
+        int[] rows = {568, 628, 686, 746, 804};
+        Cheat[] cheats = {
+                Cheat.INFINITE_LIVES, Cheat.INVINCIBILITY, Cheat.MAX_WEAPONS,
+                Cheat.INFINITE_BOMBS, Cheat.LEVEL_SELECT
+        };
+        for (int i = 0; i < cheats.length; i++) {
+            JCheckBox checkBox = transparentCheckBox(cheats[i].title, false);
+            cheatBoxes.put(cheats[i], checkBox);
+            addOverlay(checkBox, new Rectangle(458, rows[i], 625, 45));
         }
-    }
 
-    private JComponent selectionPanel() {
-        JPanel p = section("▣  1. SÉLECTION DE LA ROM", new BorderLayout(20, 4));
-        JButton choose = button("Choisir la ROM Dinosaurs for Hire (USA)", new Color(190, 30, 35));
-        choose.addActionListener(e -> chooseRom()); p.add(choose, BorderLayout.WEST);
-        JPanel details = new JPanel(new GridLayout(3, 2, 14, 4)); details.setOpaque(false);
-        details.add(label("Fichier sélectionné :")); details.add(fileName); details.add(label("Taille :")); details.add(fileSize); details.add(label("Statut :")); details.add(status);
-        p.add(details, BorderLayout.CENTER); return p;
-    }
+        MouseAdapter windowDrag = new MouseAdapter() {
+            public void mousePressed(MouseEvent event) {
+                if (event.getY() <= 31 && getExtendedState() != MAXIMIZED_BOTH) dragOrigin = event.getPoint();
+            }
 
-    private JComponent translationPanel() {
-        JPanel p = section("●  2. TRADUCTION", new BorderLayout());
-        JTextArea text = text("☑  Traduction française LG30\n\nProfitez de Dinosaurs for Hire entièrement en français !\n\n• Menus entièrement traduits\n• Dialogues des personnages traduits et adaptés\n• Textes d’objets, armes et bonus traduits\n• Messages et indications en jeu traduits\n• Noms des niveaux traduits\n• Crédits en français\n• Désormais compatible toutes régions (U / J / E)\n• Intro taguée par l’équipe");
-        p.add(text); return p;
-    }
+            public void mouseDragged(MouseEvent event) {
+                if (dragOrigin != null && getExtendedState() != MAXIMIZED_BOTH) {
+                    Point screen = event.getLocationOnScreen();
+                    setLocation(screen.x - dragOrigin.x, screen.y - dragOrigin.y);
+                }
+            }
 
-    private JComponent cheatsPanel() {
-        JPanel p = section("★  3. CHEATS / OPTIONS DE JEU", new GridLayout(0,1,4,4));
-        for (Cheat cheat : Cheat.values()) {
-            JCheckBox box = new JCheckBox("<html><b>" + cheat.title + "</b><br><span style='color:#b9c0cc'>" + cheat.description + "</span></html>");
-            box.setOpaque(false); box.setForeground(Color.WHITE); box.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 16)); cheatBoxes.put(cheat, box); p.add(box);
-        }
-        return p;
-    }
-
-    private JComponent createPanel() {
-        JPanel p = section("⚙  4. CRÉATION", new BorderLayout(5, 12));
-        JButton create = button("▶  CRÉER MA ROM", GREEN); create.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 24));
-        create.addActionListener(e -> createRom()); p.add(create, BorderLayout.NORTH);
-        p.add(text("Le programme créera une nouvelle ROM avec uniquement les options sélectionnées.\n\nLa ROM originale ne sera jamais modifiée.\n\nⓘ INFORMATIONS\n\nDinosaurs for Hire © 1993\nSega Mega Drive / Genesis\nHack réalisé par LG30 / Team Delta Island"), BorderLayout.CENTER); return p;
+            public void mouseReleased(MouseEvent event) { dragOrigin = null; }
+        };
+        overlay.addMouseListener(windowDrag);
+        overlay.addMouseMotionListener(windowDrag);
     }
 
     private void chooseRom() {
-        JFileChooser chooser = new JFileChooser(); chooser.setDialogTitle("Choisir la ROM USA officielle");
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Choisir la ROM USA officielle");
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
-        Path candidate = chooser.getSelectedFile().toPath(); fileName.setText(candidate.getFileName().toString());
+        Path candidate = chooser.getSelectedFile().toPath();
+        fileName.setText(candidate.getFileName().toString());
+        fileName.setVisible(true);
+        fileSize.setVisible(true);
+        status.setVisible(true);
         try {
-            byte[] data = RomValidator.readAndValidate(candidate); selectedRom=candidate; fileSize.setText(String.format("%,d octets", data.length).replace(',', ' ')); status.setText("✓ ROM USA valide"); status.setForeground(new Color(71, 220, 106));
-        } catch (Exception ex) { selectedRom=null; fileSize.setText("—"); status.setText("✗ " + ex.getMessage()); status.setForeground(RED); JOptionPane.showMessageDialog(this, ex.getMessage(), "ROM incompatible", JOptionPane.ERROR_MESSAGE); }
+            byte[] data = RomValidator.readAndValidate(candidate);
+            selectedRom = candidate;
+            fileSize.setText(String.format("%,d octets", data.length).replace(',', ' '));
+            status.setText("✓ ROM USA valide");
+            status.setForeground(new Color(71, 220, 106));
+        } catch (Exception exception) {
+            selectedRom = null;
+            fileSize.setText("—");
+            status.setText("✗ " + exception.getMessage());
+            status.setForeground(new Color(239, 43, 48));
+            JOptionPane.showMessageDialog(this, exception.getMessage(), "ROM incompatible", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private void createRom() {
-        if (selectedRom == null) { JOptionPane.showMessageDialog(this, "Sélectionnez et validez d’abord la ROM USA officielle.", "ROM requise", JOptionPane.WARNING_MESSAGE); return; }
-        JFileChooser chooser = new JFileChooser(selectedRom.toAbsolutePath().getParent().toFile()); chooser.setSelectedFile(new java.io.File(PatchEngine.OUTPUT_NAME));
+        if (selectedRom == null) {
+            JOptionPane.showMessageDialog(this, "Sélectionnez et validez d’abord la ROM USA officielle.", "ROM requise", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        JFileChooser chooser = new JFileChooser(selectedRom.toAbsolutePath().getParent().toFile());
+        chooser.setSelectedFile(new File(PatchEngine.OUTPUT_NAME));
         if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
-        EnumSet<Cheat> selected = EnumSet.noneOf(Cheat.class); cheatBoxes.forEach((cheat, box) -> { if(box.isSelected()) selected.add(cheat); });
-        try { new PatchEngine().createFile(selectedRom, chooser.getSelectedFile().toPath(), selected); JOptionPane.showMessageDialog(this, "ROM créée avec succès :\n" + chooser.getSelectedFile(), "Terminé", JOptionPane.INFORMATION_MESSAGE); }
-        catch (IOException | PatchException ex) { JOptionPane.showMessageDialog(this, ex.getMessage(), "Création impossible", JOptionPane.ERROR_MESSAGE); }
+        EnumSet<Cheat> selected = EnumSet.noneOf(Cheat.class);
+        for (Map.Entry<Cheat, JCheckBox> entry : cheatBoxes.entrySet())
+            if (entry.getValue().isSelected()) selected.add(entry.getKey());
+        try {
+            new PatchEngine().createFile(selectedRom, chooser.getSelectedFile().toPath(), selected);
+            JOptionPane.showMessageDialog(this, "ROM créée avec succès :\n" + chooser.getSelectedFile(), "Terminé", JOptionPane.INFORMATION_MESSAGE);
+        } catch (IOException exception) {
+            JOptionPane.showMessageDialog(this, exception.getMessage(), "Création impossible", JOptionPane.ERROR_MESSAGE);
+        } catch (PatchException exception) {
+            JOptionPane.showMessageDialog(this, exception.getMessage(), "Création impossible", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
-    private static JPanel section(String title, LayoutManager layout) { JPanel p=new JPanel(layout); p.setBackground(PANEL); p.setBorder(new CompoundBorder(new TitledBorder(new LineBorder(RED,2,true), title, TitledBorder.LEADING,TitledBorder.TOP,new Font(Font.SANS_SERIF,Font.BOLD,18),RED),new EmptyBorder(10,12,10,12))); return p; }
-    private static JLabel label(String s) { JLabel l=new JLabel(s); l.setForeground(Color.WHITE); l.setFont(new Font(Font.SANS_SERIF,Font.PLAIN,16)); return l; }
-    private static JLabel value(String s) { JLabel l=label(s); l.setForeground(new Color(184,193,210)); return l; }
-    private static JButton button(String s, Color color) { JButton b=new JButton(s); b.setForeground(Color.WHITE); b.setBackground(color); b.setFocusPainted(false); b.setFont(new Font(Font.SANS_SERIF,Font.BOLD,16)); b.setBorder(new CompoundBorder(new LineBorder(color.brighter(),2,true),new EmptyBorder(16,20,16,20))); return b; }
-    private static JTextArea text(String s) { JTextArea a=new JTextArea(s); a.setEditable(false); a.setLineWrap(true); a.setWrapStyleWord(true); a.setOpaque(false); a.setForeground(Color.WHITE); a.setFont(new Font(Font.SANS_SERIF,Font.PLAIN,15)); return a; }
+    private void toggleMaximized() {
+        if (getExtendedState() == MAXIMIZED_BOTH) {
+            setExtendedState(NORMAL);
+            if (restoredBounds != null) setBounds(restoredBounds);
+        } else {
+            restoredBounds = getBounds();
+            setExtendedState(MAXIMIZED_BOTH);
+        }
+    }
 
-    public static void main(String[] args) { SwingUtilities.invokeLater(() -> { try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); } catch(Exception ignored) { } new PatcherApplication().setVisible(true); }); }
+    private void addHotspot(Rectangle bounds, final Runnable action, String accessibleName) {
+        JPanel hotspot = new JPanel();
+        hotspot.setOpaque(false);
+        hotspot.setBorder(null);
+        hotspot.setFocusable(false);
+        hotspot.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        if (hotspot.getAccessibleContext() != null) hotspot.getAccessibleContext().setAccessibleName(accessibleName);
+        hotspot.addMouseListener(new MouseAdapter() {
+            public void mouseClicked(MouseEvent event) { action.run(); }
+        });
+        addOverlay(hotspot, bounds);
+    }
 
-    private static final class ScaledImage extends JComponent {
-        private final BufferedImage image; ScaledImage(BufferedImage image){this.image=image;setPreferredSize(new Dimension(1000,190));}
-        protected void paintComponent(Graphics g){super.paintComponent(g);g.drawImage(image,0,0,getWidth(),getHeight(),null);}
+    private void addOverlay(java.awt.Component component, Rectangle bounds) {
+        ((javax.swing.JComponent) component).putClientProperty("artworkBounds", bounds);
+        overlay.add(component);
+    }
+
+    private static JCheckBox transparentCheckBox(String accessibleName, boolean selected) {
+        JCheckBox checkBox = new InvisibleCheckBox();
+        checkBox.setSelected(selected);
+        checkBox.setOpaque(false);
+        checkBox.setContentAreaFilled(false);
+        checkBox.setBorderPainted(false);
+        checkBox.setFocusPainted(false);
+        checkBox.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        if (checkBox.getAccessibleContext() != null) {
+            checkBox.getAccessibleContext().setAccessibleName(accessibleName);
+        }
+        return checkBox;
+    }
+
+    private static JLabel overlayLabel() {
+        JLabel label = new JLabel("", SwingConstants.LEFT);
+        label.setOpaque(true);
+        label.setBackground(DYNAMIC_BACKGROUND);
+        label.setForeground(TEXT);
+        label.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 20));
+        return label;
+    }
+
+    /** A checkbox model and hit target which deliberately paints none of Swing's look and feel. */
+    private static final class InvisibleCheckBox extends JCheckBox {
+        InvisibleCheckBox() { super(""); }
+
+        protected void paintComponent(Graphics graphics) {
+            // Image.png already contains the checkbox, its border, label and icon.
+        }
+
+        protected void paintBorder(Graphics graphics) {
+            // The interactive hit target must remain completely transparent.
+        }
+    }
+
+    private static BufferedImage loadArtwork() {
+        try {
+            BufferedImage artwork = ImageIO.read(PatcherApplication.class.getResource("/Image.png"));
+            if (artwork == null || artwork.getWidth() != ARTWORK_WIDTH || artwork.getHeight() != ARTWORK_HEIGHT)
+                throw new IllegalStateException("Image.png doit mesurer exactement 1584 x 993 pixels.");
+            return artwork;
+        } catch (IOException exception) {
+            throw new IllegalStateException("Impossible de charger Image.png.", exception);
+        }
+    }
+
+    private static void verifyInstallation() throws IOException, PatchException {
+        InputStream patch = PatcherApplication.class.getResourceAsStream("/patch/translation.dfhp.b64");
+        if (patch == null) throw new PatchException("Ressource de patch absente.");
+        patch.close();
+        InputStream imageStream = PatcherApplication.class.getResourceAsStream("/Image.png");
+        if (imageStream == null) throw new PatchException("Image.png absent.");
+        BufferedImage image;
+        try { image = ImageIO.read(imageStream); }
+        finally { imageStream.close(); }
+        if (image == null || image.getWidth() != ARTWORK_WIDTH || image.getHeight() != ARTWORK_HEIGHT)
+            throw new PatchException("Dimensions de Image.png incorrectes.");
+        System.out.println("OK - installation autonome vérifiée (Image.png 1584x993 et patch embarqués)");
+    }
+
+    public static void main(String[] args) {
+        if (args.length == 1 && "--verify-installation".equals(args[0])) {
+            try { verifyInstallation(); }
+            catch (Exception exception) {
+                System.err.println("ERREUR - " + exception.getMessage());
+                System.exit(1);
+            }
+            return;
+        }
+        SwingUtilities.invokeLater(new Runnable() {
+            public void run() { new PatcherApplication().setVisible(true); }
+        });
+    }
+
+    private static final class OverlayPane extends JPanel {
+        private final BufferedImage artwork;
+
+        OverlayPane(BufferedImage artwork) {
+            this.artwork = artwork;
+            setLayout(null);
+            setPreferredSize(new Dimension(ARTWORK_WIDTH, ARTWORK_HEIGHT));
+        }
+
+        public void doLayout() {
+            double scaleX = getWidth() / (double) ARTWORK_WIDTH;
+            double scaleY = getHeight() / (double) ARTWORK_HEIGHT;
+            for (java.awt.Component component : getComponents()) {
+                Rectangle reference = (Rectangle) ((javax.swing.JComponent) component).getClientProperty("artworkBounds");
+                if (reference != null) component.setBounds(
+                        (int) Math.round(reference.x * scaleX), (int) Math.round(reference.y * scaleY),
+                        (int) Math.round(reference.width * scaleX), (int) Math.round(reference.height * scaleY));
+            }
+        }
+
+        protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
+            Graphics2D copy = (Graphics2D) graphics.create();
+            copy.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            copy.drawImage(artwork, 0, 0, getWidth(), getHeight(), null);
+            copy.dispose();
+        }
     }
 }
